@@ -7,7 +7,8 @@ import "@openzeppelin/contracts/token/ERC721/IERC721Receiver.sol";
 
 contract RentNFT {
 
-  uint256 counter = 0;
+  uint256 counter = 1;
+  uint[] NFTIds;
   uint256 weiTOeth = 10**18;
 
   enum State {
@@ -34,7 +35,11 @@ contract RentNFT {
     uint256 deadline;
   }
 
-  mapping(uint256 => nftInfo) public nftMapping;
+  mapping(address => uint256[]) lenderNFTs;
+
+  mapping(address => uint256[]) borrowerNFTs;
+
+  mapping(uint256 => nftInfo) nftMapping;
 
   mapping(uint256 => borrowerInfo) borrowerDetails;
 
@@ -68,8 +73,10 @@ contract RentNFT {
     nftInfo memory newNFT;
     uint256 currentCollateral = _collateral * weiTOeth;
     uint256 currentdailyrate = _dailyRate * weiTOeth;
-    newNFT = nftInfo(msg.sender, _nft, _tokenId, counter, _dailyRate, currentCollateral, _maxBorrowTime, State.Available);
+    newNFT = nftInfo(msg.sender, _nft, _tokenId, counter, currentdailyrate, currentCollateral, _maxBorrowTime, State.Available);
     nftMapping[counter] = newNFT;
+    NFTIds.push(counter);
+    lenderNFTs[msg.sender].push(counter); 
     IERC721(_nft).safeTransferFrom(msg.sender, address(this), _tokenId);
 
     counter++;
@@ -86,6 +93,7 @@ contract RentNFT {
     borrowerInfo memory newBorrower;
     newBorrower = borrowerInfo(payable(msg.sender), msg.value, _numOfDays, block.timestamp + _numOfDays*86400);
     borrowerDetails[_lendingId] = newBorrower;
+    borrowerNFTs[msg.sender].push(_lendingId);
 
     nftMapping[_lendingId].nftState = State.Borrowed;
   }
@@ -108,7 +116,7 @@ contract RentNFT {
 
     IERC721(nftMapping[_lendingId].nftAddress).transferFrom(address(this), msg.sender, nftMapping[_lendingId].tokenId);
 
-    uint amountToPay = (borrowerDetails[_lendingId].totalAmountPaid-nftMapping[_lendingId].collateral]);
+    uint amountToPay = (borrowerDetails[_lendingId].totalAmountPaid-nftMapping[_lendingId].collateral);
     payable(msg.sender).transfer(amountToPay);
 
     nftMapping[_lendingId].nftState = State.Delisted;
@@ -117,6 +125,35 @@ contract RentNFT {
   function claimCollateral(uint256 _lendingId) external onlyLender(_lendingId){
     require(borrowerDetails[_lendingId].deadline < block.timestamp, "Deadline has not yet passed");
     payable(msg.sender).transfer(nftMapping[_lendingId].collateral);
+  }
+
+  function extendBorrowTime(uint256 _lendingId, uint256 _numOfDays) external onlyBorrower(_lendingId) {
+    require(nftMapping[_lendingId].maxBorrowTime >= _numOfDays, "Exceeding borrow limit");
+    borrowerDetails[_lendingId].borrowedFor = _numOfDays;
+  }
+
+  function extendLendingTime(uint256 _lendingId, uint256 _maxBorowTime) external onlyLender(_lendingId) {
+    nftMapping[_lendingId].maxBorrowTime = _maxBorowTime;
+  }
+
+  function getLendedNFTs(uint256 _lendingId) public view returns (nftInfo memory) {
+    return nftMapping[_lendingId];
+  }
+
+  function getBorrowedNFT(uint256 _lendingId) public view returns (borrowerInfo memory) {
+    return borrowerDetails[_lendingId];
+  }
+
+  function getAllNFTIds() view external returns(uint[] memory) {
+     return NFTIds;
+  }
+
+  function getLenderNFTs() view external returns(uint[] memory) {
+     return lenderNFTs[msg.sender];
+  }
+
+  function getBorrowerNFTs() view external returns(uint[] memory) {
+     return borrowerNFTs[msg.sender];
   }
 
   function onERC721Received(
